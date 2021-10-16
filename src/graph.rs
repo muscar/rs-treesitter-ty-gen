@@ -1,11 +1,13 @@
+use std::collections::VecDeque;
+
 mod graph;
 
 #[derive(Clone, Copy, Debug)]
 pub struct VertexId(usize);
 
 pub struct Vertex<'a, T> {
-    id: VertexId,
-    value: &'a T,
+    pub id: VertexId,
+    pub value: &'a T,
 }
 
 pub struct Graph<T> {
@@ -33,7 +35,10 @@ impl<T> Graph<T> {
     }
 
     pub fn get_vertex(&self, id: VertexId) -> Vertex<T> {
-        Vertex { id, value: &self.vertices[id.0] }
+        Vertex {
+            id,
+            value: &self.vertices[id.0],
+        }
     }
 
     pub fn get_out_edges(&self, id: VertexId) -> Vec<VertexId> {
@@ -45,7 +50,10 @@ impl<T> Graph<T> {
     }
 
     pub fn vertices(&self) -> VertexIterator<T> {
-        VertexIterator { graph: self, curr: 0 }
+        VertexIterator {
+            graph: self,
+            curr: 0,
+        }
     }
 }
 
@@ -59,7 +67,7 @@ impl<'a, T> Iterator for VertexIterator<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr >= self.graph.vertices.len() {
-            return None
+            return None;
         }
         let v = self.graph.get_vertex(VertexId(self.curr));
         self.curr += 1;
@@ -69,7 +77,7 @@ impl<'a, T> Iterator for VertexIterator<'a, T> {
 
 pub fn topo_sort<'a, T>(g: &'a Graph<T>) -> Vec<&'a T> {
     let mut in_degree = vec![0; g.vertex_count()];
-    let mut next = Vec::new();
+    let mut next = VecDeque::new();
     let mut order = Vec::new();
     for v in g.vertices() {
         for u in g.get_out_edges(v.id) {
@@ -78,15 +86,15 @@ pub fn topo_sort<'a, T>(g: &'a Graph<T>) -> Vec<&'a T> {
     }
     for (i, d) in in_degree.iter().enumerate() {
         if *d == 0 {
-            next.push(VertexId(i));
+            next.push_back(VertexId(i));
         }
     }
-    while let Some(u) = next.pop() {
+    while let Some(u) = next.pop_front() {
         order.push(g.get_vertex(u).value);
         for v in g.get_out_edges(u) {
             in_degree[v.0] -= 1;
             if in_degree[v.0] == 0 {
-                next.push(v);
+                next.push_back(v);
             }
         }
     }
