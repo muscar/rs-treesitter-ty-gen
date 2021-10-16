@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
-
 mod graph;
+
+use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug)]
 pub struct VertexId(usize);
