@@ -5,9 +5,25 @@ use graph::{Graph, VertexId};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs,
 };
+
+struct NameGen {
+    idx: usize,
+}
+
+impl NameGen {
+    fn new() -> Self {
+        Self { idx: 0 }
+    }
+
+    fn get_fresh_name(&mut self, prefix: &str) -> String {
+        let name = format!("{}_{}", prefix, self.idx);
+        self.idx += 1;
+        name
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Grammar {
@@ -40,32 +56,30 @@ impl RuleBody {
     fn hoist_subexpressions(
         &self,
         name: &str,
-        idx: &mut usize,
+        gen: &mut NameGen,
     ) -> (RuleBody, Vec<(String, RuleBody)>) {
         let mut subexps = Vec::new();
         let result = match self {
             RuleBody::Repeat { content } => {
-                if content.is_terminal() {
-                    self.clone()
-                } else {
-                    let fresh_name = format!("{}_{}", name, idx);
-                    *idx += 1;
+                if matches!(content, box RuleBody::Choice { .. }) {
+                    let fresh_name = gen.get_fresh_name(name);
                     subexps.push((fresh_name.clone(), *content.clone()));
                     RuleBody::Repeat {
                         content: Box::new(RuleBody::Symbol { name: fresh_name }),
                     }
+                } else {
+                    self.clone()
                 }
             }
             RuleBody::Choice { members } => {
                 let mut new_members = Vec::new();
                 for b in members {
-                    let new_b = if b.is_terminal() {
-                        b.clone()
-                    } else {
-                        let fresh_name = format!("{}_{}", name, idx);
-                        *idx += 1;
+                    let new_b = if matches!(b, RuleBody::Choice { .. }) {
+                        let fresh_name = gen.get_fresh_name(name);
                         subexps.push((fresh_name.clone(), b.clone()));
                         RuleBody::Symbol { name: fresh_name }
+                    } else {
+                        b.clone()
                     };
                     new_members.push(new_b);
                 }
@@ -76,13 +90,12 @@ impl RuleBody {
             RuleBody::Seq { members } => {
                 let mut new_members = Vec::new();
                 for b in members {
-                    let new_b = if b.is_terminal() {
-                        b.clone()
-                    } else {
-                        let fresh_name = format!("{}_{}", name, idx);
-                        *idx += 1;
+                    let new_b = if matches!(b, RuleBody::Choice { .. }) {
+                        let fresh_name = gen.get_fresh_name(name);
                         subexps.push((fresh_name.clone(), b.clone()));
                         RuleBody::Symbol { name: fresh_name }
+                    } else {
+                        b.clone()
                     };
                     new_members.push(new_b);
                 }
@@ -91,9 +104,7 @@ impl RuleBody {
                 }
             }
             RuleBody::PrecLeft { content } => *content.clone(),
-            RuleBody::Symbol { .. } | RuleBody::String { .. } | RuleBody::Pattern { .. } => {
-                self.clone()
-            }
+            _ => self.clone(),
         };
         (result, subexps)
     }
@@ -118,11 +129,113 @@ impl RuleBody {
     }
 }
 
+#[derive(Debug)]
+struct AstType {
+    name: String,
+    repr: AstTypeRepr,
+}
+
+#[derive(Debug)]
+enum AstTypeRepr {
+    Sum(Vec<(String, AstTypeRepr)>),
+    Product(Vec<(Option<String>, AstTypeRepr)>),
+    Ctor(String, Vec<AstTypeRepr>),
+    Name(String),
+}
+
+impl AstType {
+    fn from_rule(name: &str, rule: &RuleBody) -> Self {
+        AstType {
+            name: name.to_owned(),
+            repr: AstTypeRepr::from_rule_body(name, rule),
+        }
+    }
+}
+
+impl Display for AstType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} = {}", self.name, self.repr)
+    }
+}
+
+impl AstTypeRepr {
+    fn from_rule_body(name: &str, rule: &RuleBody) -> Self {
+        match rule {
+            RuleBody::Repeat { content } => AstTypeRepr::Ctor(
+                "list".to_owned(),
+                vec![AstTypeRepr::from_rule_body(name, &*content)],
+            ),
+            RuleBody::Choice { members } => AstTypeRepr::Sum(
+                members
+                    .iter()
+                    .enumerate()
+                    .map(|(_, r)| {
+                        (
+                            format!("{}_CTOR", name.to_uppercase()),
+                            AstTypeRepr::from_rule_body(name, r),
+                        )
+                    })
+                    .collect(),
+            ),
+            RuleBody::Seq { members } => AstTypeRepr::Product(
+                members
+                    .iter()
+                    .enumerate()
+                    .map(|(_, r)| (None, AstTypeRepr::from_rule_body(name, r)))
+                    .collect(),
+            ),
+            RuleBody::PrecLeft { content } => AstTypeRepr::from_rule_body(name, &*content),
+            RuleBody::Symbol { name } => AstTypeRepr::Name(name.to_owned()),
+            RuleBody::String { .. } | RuleBody::Pattern { .. } => {
+                AstTypeRepr::Name("string".to_owned())
+            }
+        }
+    }
+}
+
+impl Display for AstTypeRepr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AstTypeRepr::Sum(cases) => {
+                for (i, (name, c)) in cases.iter().enumerate() {
+                    write!(f, "\n | {}_{} ({})", name, i, c)?;
+                }
+            }
+            AstTypeRepr::Product(members) => {
+                write!(f, "(")?;
+                let mut it = members.iter();
+                if let Some((_, x)) = it.next() {
+                    std::fmt::Display::fmt(&x, f)?;
+                    for (_, t) in it {
+                        write!(f, ", ")?;
+                        std::fmt::Display::fmt(&t, f)?;
+                    }
+                }
+                write!(f, ")")?;
+            }
+            AstTypeRepr::Ctor(name, args) => {
+                write!(f, "{}(", name)?;
+                let mut it = args.iter();
+                if let Some(x) = it.next() {
+                    std::fmt::Display::fmt(&x, f)?;
+                    for t in it {
+                        write!(f, ", ")?;
+                        std::fmt::Display::fmt(&t, f)?;
+                    }
+                }
+                write!(f, ")")?;
+            }
+            AstTypeRepr::Name(name) => write!(f, "{}", name)?,
+        }
+        Ok(())
+    }
+}
+
 struct TypeGenerator {
-    graph: Graph<String>,
+    graph: Graph<String, usize>,
     vertex_map: HashMap<String, VertexId>,
     rules: HashMap<String, RuleBody>,
-    fresh_rule_idx: usize,
+    gen: NameGen,
 }
 
 impl TypeGenerator {
@@ -131,13 +244,13 @@ impl TypeGenerator {
             graph: Graph::new(),
             vertex_map: HashMap::new(),
             rules: HashMap::new(),
-            fresh_rule_idx: 0,
+            gen: NameGen::new(),
         }
     }
 
-    fn get_or_insert_vertex(&mut self, name: &str) -> VertexId {
+    fn get_or_insert_vertex(&mut self, name: &str, weight: usize) -> VertexId {
         if !self.vertex_map.contains_key(name) {
-            let id = self.graph.add_vertex(name.to_owned());
+            let id = self.graph.add_vertex(name.to_owned(), weight);
             self.vertex_map.insert(name.to_owned(), id);
         }
         self.vertex_map.get(name).unwrap().clone()
@@ -147,17 +260,16 @@ impl TypeGenerator {
         let mut next = VecDeque::new();
         next.push_back((name.to_owned(), body.clone()));
         while let Some((next_name, next_body)) = next.pop_front() {
-            let uid = self.get_or_insert_vertex(&next_name);
-            let (new_body, sub_exps) =
-                next_body.hoist_subexpressions(name, &mut self.fresh_rule_idx);
+            let weight = if next_body.is_terminal() { 0 } else { 1 };
+            let uid = self.get_or_insert_vertex(&next_name, weight);
+            let (new_body, sub_exps) = next_body.hoist_subexpressions(name, &mut self.gen);
             for (fresh_name, sub_exp) in sub_exps {
                 next.push_back((fresh_name.to_owned(), sub_exp.clone()));
-                let vid = self.get_or_insert_vertex(&fresh_name);
-                self.graph.add_edge(uid, vid);
             }
             for sym_name in new_body.get_nonterminals() {
                 if sym_name != name {
-                    let vid = self.get_or_insert_vertex(&sym_name);
+                    let weight = if new_body.is_terminal() { 0 } else { 1 };
+                    let vid = self.get_or_insert_vertex(&sym_name, weight);
                     self.graph.add_edge(uid, vid);
                 }
             }
@@ -165,58 +277,16 @@ impl TypeGenerator {
         }
     }
 
-    fn print_type(&self, body: &RuleBody) {
-        match body {
-            RuleBody::Repeat { content } => {
-                print!("list(");
-                self.print_type(content);
-                print!(")");
-            }
-            RuleBody::Choice { members } => {
-                for b in members {
-                    print!("\n| ");
-                    self.print_type(b);
-                }
-            }
-            RuleBody::Seq { members } => {
-                let mut it = members.iter();
-                self.print_type(it.next().unwrap());
-                for b in it.skip(1) {
-                    print!(", ");
-                    self.print_type(b);
-                }
-            }
-            RuleBody::PrecLeft { content } => self.print_type(content),
-            RuleBody::Symbol { name } => print!("{}", name),
-            RuleBody::String { .. } | RuleBody::Pattern { .. } => print!("string"),
-        }
-    }
-
-    fn gen(&self) {
-        // for v in self.graph.vertices() {
-        //     println!(
-        //         "{:?} -> {:?}",
-        //         v.value,
-        //         self.graph
-        //             .get_out_edges(v.id)
-        //             .iter()
-        //             .map(|u| self.graph.get_vertex(*u).value)
-        //             .collect::<Vec<&String>>()
-        //     );
-        // }
-
+    fn gen(&self) -> Vec<AstType> {
         let order = graph::topo_sort(&self.graph);
         let mut bodies = Vec::new();
         for s in order {
             bodies.push((s, self.rules.get(s).unwrap()));
         }
-        let mut prefix = "type";
-        for (s, b) in bodies {
-            print!("{} {} = ", prefix, s);
-            self.print_type(b);
-            println!();
-            prefix = "and";
-        }
+        bodies
+            .iter()
+            .map(|(name, body)| AstType::from_rule(name, body))
+            .collect()
     }
 }
 
@@ -228,8 +298,7 @@ fn main() {
     for (name, body) in rules {
         ty_gen.add_rule(name, body);
     }
-    for (name, body) in &ty_gen.rules {
-        println!("{} -> {:?}", name, body);
+    for t in ty_gen.gen() {
+        println!("type {}", t);
     }
-    ty_gen.gen();
 }

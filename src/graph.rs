@@ -1,21 +1,45 @@
 mod graph;
 
-use std::collections::VecDeque;
+use std::{
+    collections::{BinaryHeap, VecDeque},
+    fmt::Display,
+};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VertexId(usize);
 
-pub struct Vertex<'a, T> {
+pub struct Vertex<'a, T, L: Ord> {
     pub id: VertexId,
     pub value: &'a T,
+    pub label: &'a L,
 }
 
-pub struct Graph<T> {
-    vertices: Vec<T>,
+impl<'a, T, L: Ord> Ord for Vertex<'a, T, L> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.label.cmp(&other.label)
+    }
+}
+
+impl<'a, T, L: Ord> PartialOrd for Vertex<'a, T, L> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.label.partial_cmp(&other.label)
+    }
+}
+
+impl<'a, T, L: Ord> Eq for Vertex<'a, T, L> {}
+
+impl<'a, T, L: Ord> PartialEq for Vertex<'a, T, L> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+pub struct Graph<T, L: Ord> {
+    vertices: Vec<(T, L)>,
     adj_list: Vec<Vec<usize>>,
 }
 
-impl<T> Graph<T> {
+impl<T, L: Ord> Graph<T, L> {
     pub fn new() -> Self {
         Self {
             vertices: Vec::new(),
@@ -23,9 +47,9 @@ impl<T> Graph<T> {
         }
     }
 
-    pub fn add_vertex(&mut self, t: T) -> VertexId {
+    pub fn add_vertex(&mut self, t: T, label: L) -> VertexId {
         let id = VertexId(self.vertices.len());
-        self.vertices.push(t);
+        self.vertices.push((t, label));
         self.adj_list.push(Vec::new());
         id
     }
@@ -34,10 +58,12 @@ impl<T> Graph<T> {
         self.adj_list[u.0].push(v.0);
     }
 
-    pub fn get_vertex(&self, id: VertexId) -> Vertex<T> {
+    pub fn get_vertex(&self, id: VertexId) -> Vertex<T, L> {
+        let v = &self.vertices[id.0];
         Vertex {
             id,
-            value: &self.vertices[id.0],
+            value: &v.0,
+            label: &v.1,
         }
     }
 
@@ -49,7 +75,7 @@ impl<T> Graph<T> {
         self.vertices.len()
     }
 
-    pub fn vertices(&self) -> VertexIterator<T> {
+    pub fn vertices(&self) -> VertexIterator<T, L> {
         VertexIterator {
             graph: self,
             curr: 0,
@@ -57,13 +83,13 @@ impl<T> Graph<T> {
     }
 }
 
-pub struct VertexIterator<'a, T> {
-    graph: &'a Graph<T>,
+pub struct VertexIterator<'a, T, L: Ord> {
+    graph: &'a Graph<T, L>,
     curr: usize,
 }
 
-impl<'a, T> Iterator for VertexIterator<'a, T> {
-    type Item = Vertex<'a, T>;
+impl<'a, T, L: Ord> Iterator for VertexIterator<'a, T, L> {
+    type Item = Vertex<'a, T, L>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr >= self.graph.vertices.len() {
@@ -75,9 +101,28 @@ impl<'a, T> Iterator for VertexIterator<'a, T> {
     }
 }
 
-pub fn topo_sort<'a, T>(g: &'a Graph<T>) -> Vec<&'a T> {
+impl<T: Display, L: Ord> Display for Graph<T, L> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for v in self.vertices() {
+            writeln!(f, "{} -> [", v.value)?;
+            let es = self.get_out_edges(v.id);
+            let mut it = es.iter();
+            if let Some(x) = it.next() {
+                self.get_vertex(*x).value.fmt(f)?;
+                for t in it {
+                    write!(f, ", ")?;
+                    std::fmt::Display::fmt(&self.get_vertex(*t).value, f)?;
+                }
+            }
+            write!(f, "]")?;
+        }
+        Ok(())
+    }
+}
+
+pub fn topo_sort<'a, T, L: Ord>(g: &'a Graph<T, L>) -> Vec<&'a T> {
     let mut in_degree = vec![0; g.vertex_count()];
-    let mut next = VecDeque::new();
+    let mut next = BinaryHeap::new();
     let mut order = Vec::new();
     for v in g.vertices() {
         for u in g.get_out_edges(v.id) {
@@ -86,40 +131,17 @@ pub fn topo_sort<'a, T>(g: &'a Graph<T>) -> Vec<&'a T> {
     }
     for (i, d) in in_degree.iter().enumerate() {
         if *d == 0 {
-            next.push_back(VertexId(i));
+            next.push(g.get_vertex(VertexId(i)));
         }
     }
-    while let Some(u) = next.pop_front() {
-        order.push(g.get_vertex(u).value);
-        for v in g.get_out_edges(u) {
+    while let Some(u) = next.pop() {
+        order.push(u.value);
+        for v in g.get_out_edges(u.id) {
             in_degree[v.0] -= 1;
             if in_degree[v.0] == 0 {
-                next.push_back(v);
+                next.push(g.get_vertex(v));
             }
         }
     }
     order
 }
-
-// fn main() {
-//     let mut g = Graph::new();
-//     let a = g.add_vertex('A');
-//     let b = g.add_vertex('B');
-//     let c = g.add_vertex('C');
-//     let d= g.add_vertex('D');
-//     let e= g.add_vertex('E');
-//     let f= g.add_vertex('F');
-//     g.add_edge(a, f);
-//     g.add_edge(b, a);
-//     g.add_edge(d, b);
-//     g.add_edge(d, c);
-//     g.add_edge(e, c);
-//     g.add_edge(e, f);
-//     for v in g.vertices() {
-//         println!("{:?} -> {:?}", v.value, g.get_out_edges(v.id).iter().map(|u| g.get_vertex(*u).value).collect::<Vec<&char>>());
-//     }
-//     let o = topo_sort(&g);
-//     for x in o {
-//         println!("{}", x);
-//     }
-// }
