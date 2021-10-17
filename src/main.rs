@@ -1,13 +1,15 @@
 #![feature(box_patterns)]
-mod graph;
 
-use graph::{Graph, VertexId};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     fmt::{Debug, Display},
     fs,
 };
+
+mod graph;
+
+use graph::{Graph, VertexId};
 
 struct NameGen {
     idx: usize,
@@ -53,60 +55,67 @@ impl RuleBody {
         )
     }
 
-    fn hoist_subexpressions(
-        &self,
-        name: &str,
-        gen: &mut NameGen,
-    ) -> (RuleBody, Vec<(String, RuleBody)>) {
-        let mut subexps = Vec::new();
-        let result = match self {
-            RuleBody::Repeat { content } => {
-                if matches!(content, box RuleBody::Choice { .. }) {
-                    let fresh_name = gen.get_fresh_name(name);
-                    subexps.push((fresh_name.clone(), *content.clone()));
+    fn map<F, T: Default>(&self, mut f: F) -> (RuleBody, T)
+    where
+        F: FnMut(&[RuleBody]) -> (Vec<RuleBody>, T),
+    {
+        match self {
+            RuleBody::Repeat { box content } => {
+                let (new_content, data) = f(&[content.clone()]);
+                (
                     RuleBody::Repeat {
-                        content: Box::new(RuleBody::Symbol { name: fresh_name }),
-                    }
-                } else {
-                    self.clone()
-                }
+                        content: Box::new(new_content[0].clone()),
+                    },
+                    data,
+                )
             }
             RuleBody::Choice { members } => {
-                let mut new_members = Vec::new();
-                for b in members {
-                    let new_b = if matches!(b, RuleBody::Choice { .. }) {
-                        let fresh_name = gen.get_fresh_name(name);
-                        subexps.push((fresh_name.clone(), b.clone()));
-                        RuleBody::Symbol { name: fresh_name }
-                    } else {
-                        b.clone()
-                    };
-                    new_members.push(new_b);
-                }
-                RuleBody::Choice {
-                    members: new_members,
-                }
+                let (new_members, data) = f(&members[..]);
+                (
+                    RuleBody::Choice {
+                        members: new_members,
+                    },
+                    data,
+                )
             }
             RuleBody::Seq { members } => {
-                let mut new_members = Vec::new();
-                for b in members {
-                    let new_b = if matches!(b, RuleBody::Choice { .. }) {
-                        let fresh_name = gen.get_fresh_name(name);
-                        subexps.push((fresh_name.clone(), b.clone()));
-                        RuleBody::Symbol { name: fresh_name }
-                    } else {
-                        b.clone()
-                    };
-                    new_members.push(new_b);
-                }
-                RuleBody::Seq {
-                    members: new_members,
-                }
+                let (new_members, data) = f(&members[..]);
+                (
+                    RuleBody::Seq {
+                        members: new_members,
+                    },
+                    data,
+                )
             }
-            RuleBody::PrecLeft { content } => *content.clone(),
-            _ => self.clone(),
-        };
-        (result, subexps)
+            RuleBody::PrecLeft { content } => content.map(f),
+            _ => (self.clone(), Default::default()),
+        }
+    }
+
+    fn hoist_subexpressions<P>(
+        &self,
+        name: &str,
+        pred: P,
+        gen: &mut NameGen,
+    ) -> (RuleBody, Vec<(String, RuleBody)>)
+    where
+        P: Fn(&RuleBody) -> bool,
+    {
+        self.map(|rules| {
+            let mut sub_exps = Vec::new();
+            let mut new_rules = Vec::new();
+            for r in rules {
+                let new_r = if pred(r) {
+                    let fresh_name = gen.get_fresh_name(name);
+                    sub_exps.push((fresh_name.clone(), r.clone()));
+                    RuleBody::Symbol { name: fresh_name }
+                } else {
+                    r.clone()
+                };
+                new_rules.push(new_r);
+            }
+            (new_rules, sub_exps)
+        })
     }
 
     fn get_nonterminals(&self) -> Vec<String> {
@@ -232,10 +241,10 @@ impl Display for AstTypeRepr {
 }
 
 struct TypeGenerator {
-    graph: Graph<String, usize>,
+    graph: Graph<String, bool>,
     vertex_map: HashMap<String, VertexId>,
     rules: HashMap<String, RuleBody>,
-    gen: NameGen,
+    name_gen: NameGen,
 }
 
 impl TypeGenerator {
@@ -244,32 +253,34 @@ impl TypeGenerator {
             graph: Graph::new(),
             vertex_map: HashMap::new(),
             rules: HashMap::new(),
-            gen: NameGen::new(),
+            name_gen: NameGen::new(),
         }
     }
 
-    fn get_or_insert_vertex(&mut self, name: &str, weight: usize) -> VertexId {
+    fn get_or_insert_vertex(&mut self, name: &str, weight: bool) -> VertexId {
         if !self.vertex_map.contains_key(name) {
             let id = self.graph.add_vertex(name.to_owned(), weight);
             self.vertex_map.insert(name.to_owned(), id);
         }
-        self.vertex_map.get(name).unwrap().clone()
+        *self.vertex_map.get(name).unwrap()
     }
 
     fn add_rule(&mut self, name: &str, body: &RuleBody) {
         let mut next = VecDeque::new();
         next.push_back((name.to_owned(), body.clone()));
         while let Some((next_name, next_body)) = next.pop_front() {
-            let weight = if next_body.is_terminal() { 0 } else { 1 };
-            let uid = self.get_or_insert_vertex(&next_name, weight);
-            let (new_body, sub_exps) = next_body.hoist_subexpressions(name, &mut self.gen);
+            let uid = self.get_or_insert_vertex(&next_name, !next_body.is_terminal());
+            let (new_body, sub_exps) = next_body.hoist_subexpressions(
+                name,
+                |r| matches!(r, RuleBody::Choice { .. }),
+                &mut self.name_gen,
+            );
             for (fresh_name, sub_exp) in sub_exps {
                 next.push_back((fresh_name.to_owned(), sub_exp.clone()));
             }
             for sym_name in new_body.get_nonterminals() {
                 if sym_name != name {
-                    let weight = if new_body.is_terminal() { 0 } else { 1 };
-                    let vid = self.get_or_insert_vertex(&sym_name, weight);
+                    let vid = self.get_or_insert_vertex(&sym_name, !next_body.is_terminal());
                     self.graph.add_edge(uid, vid);
                 }
             }
@@ -298,7 +309,10 @@ fn main() {
     for (name, body) in rules {
         ty_gen.add_rule(name, body);
     }
-    for t in ty_gen.gen() {
-        println!("type {}", t);
+    let tys = ty_gen.gen();
+    println!("type {}", tys[0]);
+    for t in tys.iter().skip(1) {
+        println!("and {}", t);
     }
+    println!(";");
 }

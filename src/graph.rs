@@ -1,9 +1,4 @@
-mod graph;
-
-use std::{
-    collections::{BinaryHeap, VecDeque},
-    fmt::Display,
-};
+use std::{collections::BinaryHeap, fmt::Display};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VertexId(usize);
@@ -16,13 +11,13 @@ pub struct Vertex<'a, T, L: Ord> {
 
 impl<'a, T, L: Ord> Ord for Vertex<'a, T, L> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.label.cmp(&other.label)
+        self.label.cmp(other.label)
     }
 }
 
 impl<'a, T, L: Ord> PartialOrd for Vertex<'a, T, L> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.label.partial_cmp(&other.label)
+        self.label.partial_cmp(other.label)
     }
 }
 
@@ -120,7 +115,7 @@ impl<T: Display, L: Ord> Display for Graph<T, L> {
     }
 }
 
-pub fn topo_sort<'a, T, L: Ord>(g: &'a Graph<T, L>) -> Vec<&'a T> {
+pub fn topo_sort<T, L: Ord>(g: &Graph<T, L>) -> Vec<&T> {
     let mut in_degree = vec![0; g.vertex_count()];
     let mut next = BinaryHeap::new();
     let mut order = Vec::new();
