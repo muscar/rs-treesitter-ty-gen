@@ -1,13 +1,23 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 
 use crate::name_gen::NameGen;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Grammar {
+pub struct RawGrammar {
     pub name: String,
     rules: HashMap<String, RuleBody>,
+    extras: Vec<RuleBody>,
+}
+
+pub struct Grammar {
+    pub name: String,
+    rules: Vec<Rule>,
 }
 
 impl Grammar {
@@ -16,17 +26,40 @@ impl Grammar {
         P: AsRef<Path>,
     {
         let s = fs::read_to_string(path).expect("failed to open file");
-        serde_json::from_str(&s).expect("failed to deserialize grammar")
+        let raw_grammar: RawGrammar =
+            serde_json::from_str(&s).expect("failed to deserialize grammar");
+        let extras = raw_grammar
+            .extras
+            .iter()
+            .filter_map(|r| match r {
+                RuleBody::Symbol { name } => Some(name.to_owned()),
+                _ => None,
+            })
+            .collect::<HashSet<String>>();
+        Self {
+            name: raw_grammar.name,
+            rules: raw_grammar
+                .rules
+                .iter()
+                .map(|(name, body)| Rule {
+                    name: name.clone(),
+                    body: body.clone(),
+                    is_extra: extras.contains(name),
+                })
+                .collect(),
+        }
     }
 
-    pub fn get_rules(&self) -> impl Iterator<Item = Rule> {
-        self.rules.iter().map(|(name, body)| Rule { name, body })
+    pub fn get_rules(&self) -> impl Iterator<Item = &Rule> {
+        self.rules.iter()
     }
 }
 
-pub struct Rule<'a> {
-    pub name: &'a str,
-    pub body: &'a RuleBody,
+#[derive(Clone)]
+pub struct Rule {
+    pub name: String,
+    pub body: RuleBody,
+    pub is_extra: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -43,13 +76,6 @@ pub enum RuleBody {
 }
 
 impl RuleBody {
-    pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            RuleBody::Symbol { .. } | RuleBody::String { .. } | RuleBody::Pattern { .. }
-        )
-    }
-
     pub fn get_nonterminals(&self) -> Vec<String> {
         match self {
             RuleBody::Repeat { content } | RuleBody::PrecLeft { content } => {

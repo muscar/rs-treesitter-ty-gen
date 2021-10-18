@@ -1,43 +1,22 @@
 use std::{
-    collections::BinaryHeap,
+    collections::VecDeque,
     fmt::{self, Display},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VertexId(usize);
 
-pub struct Vertex<'a, T, W: Ord> {
+pub struct Vertex<'a, T> {
     pub id: VertexId,
     pub value: &'a T,
-    pub weight: &'a W,
 }
 
-impl<'a, T, W: Ord> Ord for Vertex<'a, T, W> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.weight.cmp(other.weight)
-    }
-}
-
-impl<'a, T, W: Ord> PartialOrd for Vertex<'a, T, W> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.weight.partial_cmp(other.weight)
-    }
-}
-
-impl<'a, T, W: Ord> Eq for Vertex<'a, T, W> {}
-
-impl<'a, T, W: Ord> PartialEq for Vertex<'a, T, W> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-pub struct Graph<T, W: Ord> {
-    vertices: Vec<(T, W)>,
+pub struct Graph<T> {
+    vertices: Vec<T>,
     adj_list: Vec<Vec<usize>>,
 }
 
-impl<T, W: Ord> Graph<T, W> {
+impl<T> Graph<T> {
     pub fn new() -> Self {
         Self {
             vertices: Vec::new(),
@@ -45,9 +24,9 @@ impl<T, W: Ord> Graph<T, W> {
         }
     }
 
-    pub fn add_vertex(&mut self, t: T, weight: W) -> VertexId {
+    pub fn add_vertex(&mut self, t: T) -> VertexId {
         let id = VertexId(self.vertices.len());
-        self.vertices.push((t, weight));
+        self.vertices.push(t);
         self.adj_list.push(Vec::new());
         id
     }
@@ -56,12 +35,10 @@ impl<T, W: Ord> Graph<T, W> {
         self.adj_list[u.0].push(v.0);
     }
 
-    pub fn get_vertex(&self, id: VertexId) -> Vertex<T, W> {
-        let v = &self.vertices[id.0];
+    pub fn get_vertex(&self, id: VertexId) -> Vertex<T> {
         Vertex {
             id,
-            value: &v.0,
-            weight: &v.1,
+            value: &self.vertices[id.0],
         }
     }
 
@@ -73,7 +50,7 @@ impl<T, W: Ord> Graph<T, W> {
         self.vertices.len()
     }
 
-    pub fn vertices(&self) -> VertexIterator<T, W> {
+    pub fn vertices(&self) -> VertexIterator<T> {
         VertexIterator {
             graph: self,
             curr_idx: 0,
@@ -81,13 +58,13 @@ impl<T, W: Ord> Graph<T, W> {
     }
 }
 
-pub struct VertexIterator<'a, T, W: Ord> {
-    graph: &'a Graph<T, W>,
+pub struct VertexIterator<'a, T> {
+    graph: &'a Graph<T>,
     curr_idx: usize,
 }
 
-impl<'a, T, W: Ord> Iterator for VertexIterator<'a, T, W> {
-    type Item = Vertex<'a, T, W>;
+impl<'a, T> Iterator for VertexIterator<'a, T> {
+    type Item = Vertex<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr_idx >= self.graph.vertices.len() {
@@ -99,7 +76,7 @@ impl<'a, T, W: Ord> Iterator for VertexIterator<'a, T, W> {
     }
 }
 
-impl<T: Display, W: Ord> Display for Graph<T, W> {
+impl<T: Display> Display for Graph<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for v in self.vertices() {
             writeln!(f, "{} -> [", v.value)?;
@@ -118,9 +95,9 @@ impl<T: Display, W: Ord> Display for Graph<T, W> {
     }
 }
 
-pub fn topo_sort<T, W: Ord>(g: &Graph<T, W>) -> Vec<&T> {
+pub fn topo_sort<T>(g: &Graph<T>) -> Vec<&T> {
     let mut in_degree = vec![0; g.vertex_count()];
-    let mut next = BinaryHeap::new();
+    let mut next = VecDeque::new();
     let mut order = Vec::new();
     for v in g.vertices() {
         for u in g.get_out_edges(v.id) {
@@ -129,15 +106,15 @@ pub fn topo_sort<T, W: Ord>(g: &Graph<T, W>) -> Vec<&T> {
     }
     for (i, d) in in_degree.iter().enumerate() {
         if *d == 0 {
-            next.push(g.get_vertex(VertexId(i)));
+            next.push_back(g.get_vertex(VertexId(i)));
         }
     }
-    while let Some(u) = next.pop() {
+    while let Some(u) = next.pop_front() {
         order.push(u.value);
         for v in g.get_out_edges(u.id) {
             in_degree[v.0] -= 1;
             if in_degree[v.0] == 0 {
-                next.push(g.get_vertex(v));
+                next.push_back(g.get_vertex(v));
             }
         }
     }

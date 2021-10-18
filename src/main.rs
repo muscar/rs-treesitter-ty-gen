@@ -16,7 +16,7 @@ fn main() {
     let g = Grammar::from_file(&args[1]);
     let mut ty_gen = TypeGenerator::new();
     for r in g.get_rules() {
-        ty_gen.add_rule(&r);
+        ty_gen.add_rule(r);
     }
     let tys = ty_gen.gen();
     println!("type {}", tys[0]);
