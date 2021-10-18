@@ -1,5 +1,3 @@
-#![feature(box_patterns)]
-
 mod ast_types;
 mod grammar;
 mod graph;

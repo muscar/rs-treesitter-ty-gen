@@ -35,7 +35,7 @@ impl Grammar {
 
     pub fn get_rules(&self) -> impl Iterator<Item = Rule> {
         self.rules.iter().map(|(name, body)| Rule {
-            name: name.to_owned(),
+            name: name.clone(),
             body,
         })
     }
@@ -67,13 +67,33 @@ impl RuleBody {
         )
     }
 
+    pub fn get_nonterminals(&self) -> Vec<String> {
+        match self {
+            RuleBody::Repeat { content } | RuleBody::PrecLeft { content } => {
+                if let RuleBody::Symbol { name } = &**content {
+                    vec![name.clone()]
+                } else {
+                    vec![]
+                }
+            }
+            RuleBody::Choice { members } | RuleBody::Seq { members } => members
+                .iter()
+                .filter_map(|b| match b {
+                    RuleBody::Symbol { name } => Some(name.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => vec![],
+        }
+    }
+
     pub fn map_subexps<F, T: Default>(&self, mut f: F) -> (RuleBody, T)
     where
         F: FnMut(&[RuleBody]) -> (Vec<RuleBody>, T),
     {
         match self {
-            RuleBody::Repeat { box content } => {
-                let (new_content, data) = f(&[content.clone()]);
+            RuleBody::Repeat { content } => {
+                let (new_content, data) = f(&[*content.clone()]);
                 (
                     RuleBody::Repeat {
                         content: Box::new(new_content[0].clone()),
@@ -128,24 +148,5 @@ impl RuleBody {
             }
             (new_rules, subexps)
         })
-    }
-
-    pub fn get_nonterminals(&self) -> Vec<String> {
-        match self {
-            RuleBody::Repeat {
-                content: box RuleBody::Symbol { name: symbol_name },
-            } => vec![symbol_name.to_owned()],
-            RuleBody::Choice { members } | RuleBody::Seq { members } => members
-                .iter()
-                .filter_map(|b| match b {
-                    RuleBody::Symbol { name } => Some(name.clone()),
-                    _ => None,
-                })
-                .collect(),
-            RuleBody::PrecLeft {
-                content: box RuleBody::Symbol { name: symbol_name },
-            } => vec![symbol_name.to_owned()],
-            _ => vec![],
-        }
     }
 }
