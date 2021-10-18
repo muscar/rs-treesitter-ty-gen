@@ -2,8 +2,9 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::{
     ast_types::AstType,
-    grammar::{NameGen, Rule, RuleBody},
+    grammar::{Rule, RuleBody},
     graph::{self, Graph, VertexId},
+    name_gen::NameGen,
 };
 
 pub struct TypeGenerator {
@@ -37,7 +38,7 @@ impl TypeGenerator {
         while let Some((next_name, next_body)) = next.pop_front() {
             let uid = self.get_or_insert_vertex(&next_name, !next_body.is_terminal());
             let (new_body, sub_exps) = next_body.hoist_subexps(
-                &rule.name,
+                rule.name,
                 |r| matches!(r, RuleBody::Choice { .. }),
                 &mut self.name_gen,
             );

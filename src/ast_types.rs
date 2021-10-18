@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{self, Display};
 
 use crate::grammar::RuleBody;
 
@@ -26,7 +26,7 @@ impl AstType {
 }
 
 impl Display for AstType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} = {}", self.name, self.repr)
     }
 }
@@ -67,7 +67,7 @@ impl AstTypeRepr {
 }
 
 impl Display for AstTypeRepr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AstTypeRepr::Sum(cases) => {
                 for (i, (name, c)) in cases.iter().enumerate() {
@@ -78,10 +78,10 @@ impl Display for AstTypeRepr {
                 write!(f, "(")?;
                 let mut it = members.iter();
                 if let Some((_, x)) = it.next() {
-                    std::fmt::Display::fmt(&x, f)?;
+                    x.fmt(f)?;
                     for (_, t) in it {
                         write!(f, ", ")?;
-                        std::fmt::Display::fmt(&t, f)?;
+                        t.fmt(f)?;
                     }
                 }
                 write!(f, ")")?;
@@ -90,10 +90,10 @@ impl Display for AstTypeRepr {
                 write!(f, "{}(", name)?;
                 let mut it = args.iter();
                 if let Some(x) = it.next() {
-                    std::fmt::Display::fmt(&x, f)?;
+                    x.fmt(f)?;
                     for t in it {
                         write!(f, ", ")?;
-                        std::fmt::Display::fmt(&t, f)?;
+                        t.fmt(f)?;
                     }
                 }
                 write!(f, ")")?;

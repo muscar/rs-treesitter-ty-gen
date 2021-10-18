@@ -2,21 +2,7 @@ use std::{collections::HashMap, fs, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-pub struct NameGen {
-    idx: usize,
-}
-
-impl NameGen {
-    pub fn new() -> Self {
-        Self { idx: 0 }
-    }
-
-    pub fn get_fresh_name(&mut self, prefix: &str) -> String {
-        let name = format!("{}_{}", prefix, self.idx);
-        self.idx += 1;
-        name
-    }
-}
+use crate::name_gen::NameGen;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Grammar {
@@ -34,15 +20,12 @@ impl Grammar {
     }
 
     pub fn get_rules(&self) -> impl Iterator<Item = Rule> {
-        self.rules.iter().map(|(name, body)| Rule {
-            name: name.clone(),
-            body,
-        })
+        self.rules.iter().map(|(name, body)| Rule { name, body })
     }
 }
 
 pub struct Rule<'a> {
-    pub name: String,
+    pub name: &'a str,
     pub body: &'a RuleBody,
 }
 

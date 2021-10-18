@@ -1,6 +1,7 @@
 mod ast_types;
 mod grammar;
 mod graph;
+mod name_gen;
 mod type_gen;
 
 use crate::{grammar::Grammar, type_gen::TypeGenerator};

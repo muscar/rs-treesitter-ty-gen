@@ -1,40 +1,43 @@
-use std::{collections::BinaryHeap, fmt::Display};
+use std::{
+    collections::BinaryHeap,
+    fmt::{self, Display},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VertexId(usize);
 
-pub struct Vertex<'a, T, L: Ord> {
+pub struct Vertex<'a, T, W: Ord> {
     pub id: VertexId,
     pub value: &'a T,
-    pub label: &'a L,
+    pub weight: &'a W,
 }
 
-impl<'a, T, L: Ord> Ord for Vertex<'a, T, L> {
+impl<'a, T, W: Ord> Ord for Vertex<'a, T, W> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.label.cmp(other.label)
+        self.weight.cmp(other.weight)
     }
 }
 
-impl<'a, T, L: Ord> PartialOrd for Vertex<'a, T, L> {
+impl<'a, T, W: Ord> PartialOrd for Vertex<'a, T, W> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.label.partial_cmp(other.label)
+        self.weight.partial_cmp(other.weight)
     }
 }
 
-impl<'a, T, L: Ord> Eq for Vertex<'a, T, L> {}
+impl<'a, T, W: Ord> Eq for Vertex<'a, T, W> {}
 
-impl<'a, T, L: Ord> PartialEq for Vertex<'a, T, L> {
+impl<'a, T, W: Ord> PartialEq for Vertex<'a, T, W> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-pub struct Graph<T, L: Ord> {
-    vertices: Vec<(T, L)>,
+pub struct Graph<T, W: Ord> {
+    vertices: Vec<(T, W)>,
     adj_list: Vec<Vec<usize>>,
 }
 
-impl<T, L: Ord> Graph<T, L> {
+impl<T, W: Ord> Graph<T, W> {
     pub fn new() -> Self {
         Self {
             vertices: Vec::new(),
@@ -42,9 +45,9 @@ impl<T, L: Ord> Graph<T, L> {
         }
     }
 
-    pub fn add_vertex(&mut self, t: T, label: L) -> VertexId {
+    pub fn add_vertex(&mut self, t: T, weight: W) -> VertexId {
         let id = VertexId(self.vertices.len());
-        self.vertices.push((t, label));
+        self.vertices.push((t, weight));
         self.adj_list.push(Vec::new());
         id
     }
@@ -53,12 +56,12 @@ impl<T, L: Ord> Graph<T, L> {
         self.adj_list[u.0].push(v.0);
     }
 
-    pub fn get_vertex(&self, id: VertexId) -> Vertex<T, L> {
+    pub fn get_vertex(&self, id: VertexId) -> Vertex<T, W> {
         let v = &self.vertices[id.0];
         Vertex {
             id,
             value: &v.0,
-            label: &v.1,
+            weight: &v.1,
         }
     }
 
@@ -70,34 +73,34 @@ impl<T, L: Ord> Graph<T, L> {
         self.vertices.len()
     }
 
-    pub fn vertices(&self) -> VertexIterator<T, L> {
+    pub fn vertices(&self) -> VertexIterator<T, W> {
         VertexIterator {
             graph: self,
-            curr: 0,
+            curr_idx: 0,
         }
     }
 }
 
-pub struct VertexIterator<'a, T, L: Ord> {
-    graph: &'a Graph<T, L>,
-    curr: usize,
+pub struct VertexIterator<'a, T, W: Ord> {
+    graph: &'a Graph<T, W>,
+    curr_idx: usize,
 }
 
-impl<'a, T, L: Ord> Iterator for VertexIterator<'a, T, L> {
-    type Item = Vertex<'a, T, L>;
+impl<'a, T, W: Ord> Iterator for VertexIterator<'a, T, W> {
+    type Item = Vertex<'a, T, W>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.curr >= self.graph.vertices.len() {
+        if self.curr_idx >= self.graph.vertices.len() {
             return None;
         }
-        let v = self.graph.get_vertex(VertexId(self.curr));
-        self.curr += 1;
+        let v = self.graph.get_vertex(VertexId(self.curr_idx));
+        self.curr_idx += 1;
         Some(v)
     }
 }
 
-impl<T: Display, L: Ord> Display for Graph<T, L> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: Display, W: Ord> Display for Graph<T, W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for v in self.vertices() {
             writeln!(f, "{} -> [", v.value)?;
             let es = self.get_out_edges(v.id);
@@ -106,7 +109,7 @@ impl<T: Display, L: Ord> Display for Graph<T, L> {
                 self.get_vertex(*x).value.fmt(f)?;
                 for t in it {
                     write!(f, ", ")?;
-                    std::fmt::Display::fmt(&self.get_vertex(*t).value, f)?;
+                    fmt::Display::fmt(&self.get_vertex(*t).value, f)?;
                 }
             }
             write!(f, "]")?;
@@ -115,7 +118,7 @@ impl<T: Display, L: Ord> Display for Graph<T, L> {
     }
 }
 
-pub fn topo_sort<T, L: Ord>(g: &Graph<T, L>) -> Vec<&T> {
+pub fn topo_sort<T, W: Ord>(g: &Graph<T, W>) -> Vec<&T> {
     let mut in_degree = vec![0; g.vertex_count()];
     let mut next = BinaryHeap::new();
     let mut order = Vec::new();
