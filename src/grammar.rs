@@ -25,7 +25,7 @@ impl Grammar {
     where
         P: AsRef<Path>,
     {
-        let s = fs::read_to_string(path).expect("failed to open file");
+        let s = fs::read_to_string(path).expect("failed to open grammar file");
         let raw_grammar: RawGrammar =
             serde_json::from_str(&s).expect("failed to deserialize grammar");
         let extras = raw_grammar
@@ -70,6 +70,7 @@ pub enum RuleBody {
     Choice { members: Vec<RuleBody> },
     Seq { members: Vec<RuleBody> },
     PrecLeft { content: Box<RuleBody> },
+    PrecRight { content: Box<RuleBody> },
     Symbol { name: String },
     String { value: String },
     Pattern { value: String },
@@ -78,7 +79,9 @@ pub enum RuleBody {
 impl RuleBody {
     pub fn get_nonterminals(&self) -> Vec<String> {
         match self {
-            RuleBody::Repeat { content } | RuleBody::PrecLeft { content } => {
+            RuleBody::Repeat { content }
+            | RuleBody::PrecLeft { content }
+            | RuleBody::PrecRight { content } => {
                 if let RuleBody::Symbol { name } = &**content {
                     vec![name.clone()]
                 } else {
@@ -128,7 +131,9 @@ impl RuleBody {
                     data,
                 )
             }
-            RuleBody::PrecLeft { content } => content.map_subexps(f),
+            RuleBody::PrecLeft { content } | RuleBody::PrecRight { content } => {
+                content.map_subexps(f)
+            }
             _ => (self.clone(), Default::default()),
         }
     }

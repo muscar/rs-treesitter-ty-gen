@@ -57,7 +57,9 @@ impl AstTypeRepr {
                     .map(|(_, r)| (None, AstTypeRepr::from_rule_body(name, r)))
                     .collect(),
             ),
-            RuleBody::PrecLeft { content } => AstTypeRepr::from_rule_body(name, &*content),
+            RuleBody::PrecLeft { content } | RuleBody::PrecRight { content } => {
+                AstTypeRepr::from_rule_body(name, &*content)
+            }
             RuleBody::Symbol { name } => AstTypeRepr::Name(name.to_owned()),
             RuleBody::String { .. } | RuleBody::Pattern { .. } => {
                 AstTypeRepr::Name("string".to_owned())
@@ -102,4 +104,12 @@ impl Display for AstTypeRepr {
         }
         Ok(())
     }
+}
+
+pub fn print_type_hierarchy(tys: &[AstType]) {
+    println!("type {}", tys[0]);
+    for t in tys.iter().skip(1) {
+        println!("and {}", t);
+    }
+    println!(";");
 }

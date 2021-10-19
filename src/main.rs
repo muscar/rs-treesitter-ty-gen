@@ -19,9 +19,5 @@ fn main() {
         ty_gen.add_rule(r);
     }
     let tys = ty_gen.gen();
-    println!("type {}", tys[0]);
-    for t in tys.iter().skip(1) {
-        println!("and {}", t);
-    }
-    println!(";");
+    ast_types::print_type_hierarchy(&tys);
 }
